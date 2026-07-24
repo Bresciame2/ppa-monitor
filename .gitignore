@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+run.sh
+monitor.log
+launchd.log

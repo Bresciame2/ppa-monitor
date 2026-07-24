@@ -1,0 +1,39 @@
+name: PPA Tender Monitor
+
+on:
+  schedule:
+    # 05:00 UTC = 08:00 Beirut time (EEST, UTC+3). Shifts to 07:00 local
+    # once Lebanon falls back to EET (UTC+2) for the winter.
+    - cron: "0 5 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python3 ppa_monitor.py
+        env:
+          SMTP_HOST: smtp.gmail.com
+          SMTP_PORT: "587"
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Persist state.json
+        run: |
+          git config user.name "ppa-monitor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || git commit -m "Update scan state [skip ci]"
+          git push

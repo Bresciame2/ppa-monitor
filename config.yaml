@@ -1,0 +1,185 @@
+# ============================================================================
+# PPA Tender Monitor - configuration
+# Secrets are NOT stored here. They come from environment variables:
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, ANTHROPIC_API_KEY
+# ============================================================================
+
+# Where alerts go. You only.
+notify_email: "Tony.abisaab@bresciame.com"
+
+# Scanning behaviour --------------------------------------------------------
+# The scan starts at last_id from state.json; on the very first run it starts
+# here. 12120 was live in late June 2026 - set this a little BELOW the newest
+# tender you can see on the site so the first run picks up recent items.
+start_id: 12320
+
+# Stop after this many consecutive missing IDs (gaps happen - drafts get
+# deleted, IDs get skipped). 25 is comfortably safe.
+gap_limit: 25
+
+# Hard ceiling on IDs checked per run, so a runaway loop can't hammer the site.
+max_scan_per_run: 300
+
+# Politeness delay between requests, in seconds.
+delay_seconds: 1.5
+
+claude_model: "claude-sonnet-4-6"
+
+# ---------------------------------------------------------------------------
+# STREAM A - procuring entities
+# Substring match after Arabic normalisation, so partial names are fine.
+# ---------------------------------------------------------------------------
+entities:
+  - "الجيش"                                    # Lebanese Army
+  - "وزارة الدفاع الوطني"                       # Ministry of National Defence
+  - "المديرية العامة للإدارة"                   # DG Administration (MoD)
+  - "المديرية العامة لقوى الامن الداخلي"         # Internal Security Forces
+  - "المديرية العامة للامن العام"                # General Security
+  - "المديرية العامة لأمن الدولة"                # State Security
+  - "المديرية العامة للدفاع المدني"              # Civil Defence
+  - "الجمارك"                                   # Customs
+  - "المجلس الاعلى للدفاع الوطني"                # Higher Defence Council
+  - "المجلس الاعلى للصيد البري"                  # Higher Hunting Council
+
+# ---------------------------------------------------------------------------
+# STREAM B, part 1 - official sector categories
+# NOTE: the Sector field is often left BLANK by the procuring entity
+# (tender 12120, riot gear from the MoD, had no sector at all), so this list
+# is a bonus signal. The keyword list below does the real work.
+# ---------------------------------------------------------------------------
+sectors:
+  - "Security"
+  - "Clothing"
+  - "Different Equipment"
+  - "Equipment - CCTV system"
+  - "Equipment - X-ray detection"
+  - "Equipment - Detecting bags and people"
+  - "Equipment - containers for explosive insulation"
+  - "Equipment - Alarm and Fire Fighting System"
+  - "Equipment - Radar System"
+  - "Equipment- Firefighting and Rescue"
+  - "Equipment - Sale of Equipment"
+  - "Vehicles - Selling Vehicles/Spare Parts"
+  - "Raw Material - Sale of Raw Material"
+
+# ---------------------------------------------------------------------------
+# STREAM B, part 2 - title / description keywords (Arabic + English)
+# Arabic is normalised before matching (alef, ya, ta-marbuta, diacritics),
+# so you don't need to worry about spelling variants.
+# ---------------------------------------------------------------------------
+keywords:
+  # --- weapons & ammunition
+  - "سلاح"
+  - "أسلحة"
+  - "ذخيرة"
+  - "ذخائر"
+  - "بندقية"
+  - "مسدس"
+  - "خرطوش"
+  - "طلقات"
+  - "weapon"
+  - "firearm"
+  - "ammunition"
+  - "rifle"
+  - "pistol"
+  - "cartridge"
+
+  # --- riot control & less-lethal (this caught tender 12120)
+  - "مكافحة الشغب"
+  - "خوذة"
+  - "خوذ"
+  - "درع"
+  - "دروع"
+  - "قنابل مسيلة"
+  - "غاز مسيل"
+  - "riot"
+  - "helmet"
+  - "shield"
+  - "tear gas"
+  - "less lethal"
+  - "non-lethal"
+
+  # --- body armor & protection
+  - "سترة واقية"
+  - "سترات واقية"
+  - "واقية"
+  - "مضاد للرصاص"
+  - "body armor"
+  - "body armour"
+  - "ballistic"
+  - "bulletproof"
+  - "protective vest"
+
+  # --- uniforms & tactical gear
+  - "بزة"
+  - "بزات"
+  - "ألبسة عسكرية"
+  - "تجهيزات فنية"
+  - "معدات تكتيكية"
+  - "uniform"
+  - "tactical"
+  - "combat gear"
+  - "boots"
+
+  # --- optics, night vision, detection
+  - "منظار"
+  - "مناظير"
+  - "رؤية ليلية"
+  - "كشف"
+  - "أجهزة كشف"
+  - "optic"
+  - "scope"
+  - "night vision"
+  - "thermal"
+  - "detector"
+  - "detection"
+  - "x-ray"
+  - "scanner"
+
+  # --- security systems
+  - "مراقبة"
+  - "كاميرات"
+  - "أمن"
+  - "أمني"
+  - "حماية"
+  - "surveillance"
+  - "cctv"
+  - "security system"
+  - "access control"
+
+  # --- surplus / auction (buying FROM the state)
+  - "بيع"
+  - "مزايدة"
+  - "فائض"
+  - "خردة"
+  - "استبعاد"
+  - "auction"
+  - "surplus"
+  - "disposal"
+  - "sale of"
+  - "scrap"
+
+  # --- shooting ranges & training
+  - "ميدان رماية"
+  - "رماية"
+  - "تدريب عسكري"
+  - "shooting range"
+  - "firing range"
+
+# ---------------------------------------------------------------------------
+# Noise filter. Anything matching these is dropped before scoring, to stop
+# broad words like "بيع" (sale) or "حماية" (protection) from dragging in
+# irrelevant tenders. Trim this list if you find it's hiding real matches.
+# ---------------------------------------------------------------------------
+exclude_keywords:
+  - "أدوية"           # medicines
+  - "مستشفى"          # hospital
+  - "نفايات"          # waste
+  - "صرف صحي"         # sewage
+  - "مياه الشفة"      # drinking water
+  - "قرطاسية"         # stationery
+  - "طباعة"           # printing
+  - "أشغال طرق"       # road works
+  - "تنظيف"           # cleaning
+  - "مازوت"           # diesel fuel
+  - "بنزين"           # gasoline
