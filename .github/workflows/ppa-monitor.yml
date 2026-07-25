@@ -2,9 +2,10 @@ name: PPA Tender Monitor
 
 on:
   schedule:
-    # 05:00 UTC = 08:00 Beirut time (EEST, UTC+3). Shifts to 07:00 local
-    # once Lebanon falls back to EET (UTC+2) for the winter.
-    - cron: "0 5 * * *"
+    # 05:12 UTC = ~08:00 Beirut time (EEST, UTC+3). Off the top of the hour
+    # on purpose - GitHub deprioritizes scheduled runs requested at :00.
+    # Shifts to ~07:00 local once Lebanon falls back to EET (UTC+2) in winter.
+    - cron: "12 5 * * *"
   workflow_dispatch: {}
 
 permissions:
