@@ -268,8 +268,11 @@ Respond with JSON only, no other text:
 # Email
 # ----------------------------------------------------------------------------
 def build_email(matches, cfg):
+    relevant = [m for m in matches if m["priority"] in ("HIGH", "NORMAL")]
+    others = [m for m in matches if m["priority"] not in ("HIGH", "NORMAL")]
+
     rows = []
-    for m in sorted(matches, key=lambda x: (x["priority"] != "HIGH", x["rec"]["id"])):
+    for m in sorted(relevant, key=lambda x: (x["priority"] != "HIGH", x["rec"]["id"])):
         r = m["rec"]
         colour = "#b91c1c" if m["priority"] == "HIGH" else "#1d4ed8"
         rows.append(f"""
@@ -298,17 +301,50 @@ def build_email(matches, cfg):
           </td>
         </tr>""")
 
+    other_rows = []
+    for m in sorted(others, key=lambda x: x["rec"]["id"]):
+        r = m["rec"]
+        other_rows.append(f"""
+        <tr>
+          <td style="padding:8px 14px;border-bottom:1px solid #f3f4f6;font-size:12px;
+              color:#9ca3af;vertical-align:top;white-space:nowrap">#{r['id']}</td>
+          <td style="padding:8px 14px;border-bottom:1px solid #f3f4f6;font-size:12px;color:#374151">
+            <a href="{r['url']}" style="color:#111827;text-decoration:none;font-weight:600">
+              {r.get('title','(no title)')}</a><br>
+            <span style="color:#6b7280">{r.get('entity','-')} &middot;
+              opens: {r.get('opening','-')}</span>
+          </td>
+        </tr>""")
+
+    sections = []
+    if rows:
+        sections.append(f"""
+        <div style="padding:10px 20px;background:#fef2f2;font-size:12px;font-weight:700;
+            color:#b91c1c;letter-spacing:.5px">RELEVANT MATCHES ({len(relevant)})</div>
+        <table style="width:100%;border-collapse:collapse">{''.join(rows)}</table>""")
+    else:
+        sections.append("""
+        <div style="padding:14px 20px;font-size:13px;color:#6b7280">
+          No tenders matched your filters today.</div>""")
+    if other_rows:
+        sections.append(f"""
+        <div style="padding:10px 20px;background:#f9fafb;font-size:12px;font-weight:700;
+            color:#6b7280;letter-spacing:.5px;border-top:1px solid #e5e7eb">
+          ALL OTHER NEW TENDERS ({len(others)})</div>
+        <table style="width:100%;border-collapse:collapse">{''.join(other_rows)}</table>""")
+
     html = f"""<html><body style="margin:0;padding:24px;background:#f9fafb;
       font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
       <div style="max-width:680px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:10px">
         <div style="padding:18px 20px;border-bottom:2px solid #111827">
           <div style="font-size:18px;font-weight:700;color:#111827">PPA Tender Alert</div>
           <div style="font-size:13px;color:#6b7280;margin-top:2px">
-            {len(matches)} new match{'es' if len(matches)!=1 else ''} &middot;
+            {len(matches)} new tender{'s' if len(matches)!=1 else ''} &middot;
+            {len(relevant)} relevant &middot;
             {datetime.now(timezone.utc).astimezone().strftime('%d %b %Y, %H:%M')}
           </div>
         </div>
-        <table style="width:100%;border-collapse:collapse">{''.join(rows)}</table>
+        {''.join(sections)}
         <div style="padding:14px 20px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb">
           Automated monitor &middot; ppa.gov.lb &middot; HIGH = matched both entity and category filters
         </div>
@@ -327,8 +363,10 @@ def send_email(matches, cfg):
         log.error("SMTP env vars missing - cannot send. Set SMTP_HOST/USER/PASS.")
         return False
 
+    n_rel = sum(1 for m in matches if m["priority"] in ("HIGH", "NORMAL"))
     n_high = sum(1 for m in matches if m["priority"] == "HIGH")
-    subject = f"[PPA] {len(matches)} new tender{'s' if len(matches)!=1 else ''}"
+    subject = (f"[PPA] {len(matches)} new tender{'s' if len(matches)!=1 else ''}"
+               f" - {n_rel} relevant")
     if n_high:
         subject += f" ({n_high} high priority)"
 
@@ -386,46 +424,30 @@ def main():
 
         ent_hit = match_entity(rec, cfg)
         cat_hits = match_sector_or_title(rec, cfg)
-
-        # Noise filter. A defence/security buyer outranks it: if the Army is
-        # tendering, we look regardless of what noise word is in the title.
         excl = is_excluded(rec, cfg)
-        if excl and not ent_hit:
-            log.info("   excluded (%s)", excl)
-            tid += 1
-            time.sleep(cfg.get("delay_seconds", 1.5))
-            continue
-        if excl and ent_hit and not cat_hits:
-            # Target buyer, but the title looks like routine supplies.
-            # Let Claude make the call rather than guessing.
-            ok, reason = ask_claude(rec, cfg)
-            if not ok:
-                log.info("   entity match, noise word '%s', Claude: %s", excl, reason)
-                tid += 1
-                time.sleep(cfg.get("delay_seconds", 1.5))
-                continue
 
-        if ent_hit and cat_hits:
+        # Classify. NOTHING is dropped from the email any more: tenders that
+        # don't match the filters ride along as OTHER and are listed compactly
+        # below the highlighted matches. Filters decide priority, not inclusion.
+        priority, why = "OTHER", ""
+        if excl and not ent_hit:
+            why = f"noise word: {excl}"
+        elif ent_hit and cat_hits:
             priority, why = "HIGH", f"entity:{ent_hit} + " + ", ".join(cat_hits[:3])
         elif cat_hits:
             priority, why = "NORMAL", ", ".join(cat_hits[:3])
         elif ent_hit:
-            # Right buyer, unclear item -> let Claude decide.
+            # Right buyer, unclear (or noisy) item -> let Claude set priority.
             ok, reason = ask_claude(rec, cfg)
-            if not ok:
-                log.info("   entity match but Claude says not relevant: %s", reason)
-                tid += 1
-                time.sleep(cfg.get("delay_seconds", 1.5))
-                continue
-            priority, why = "NORMAL", f"entity:{ent_hit} (AI: {reason})"
-        else:
-            tid += 1
-            time.sleep(cfg.get("delay_seconds", 1.5))
-            continue
+            if ok:
+                priority, why = "NORMAL", f"entity:{ent_hit} (AI: {reason})"
+            else:
+                why = f"entity:{ent_hit}, AI: {reason}"
 
         if tid not in state["notified"]:
             matches.append({"rec": rec, "priority": priority, "why": why})
-            log.info("   >>> MATCH [%s] %s", priority, why)
+            if priority != "OTHER":
+                log.info("   >>> MATCH [%s] %s", priority, why)
 
         tid += 1
         time.sleep(cfg.get("delay_seconds", 1.5))

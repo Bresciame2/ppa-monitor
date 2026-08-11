@@ -18,6 +18,10 @@ Each new tender is parsed, then scored against two filter streams:
 
 Hit by both → **HIGH** priority. Hit by one → **NORMAL**.
 
+**Every new tender is emailed.** The filters decide highlighting, not inclusion:
+HIGH/NORMAL matches appear at the top with full details; everything else is
+listed compactly under "All other new tenders" so nothing slips by unseen.
+
 **Why the title keywords matter:** the portal's `Sector` field is frequently left
 blank. Tender 12120 — riot helmets and suits from the Ministry of Defence — had no
 sector at all. A sector-only filter would have missed it. The title always has content,
